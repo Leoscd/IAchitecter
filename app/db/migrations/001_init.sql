@@ -2,6 +2,7 @@
 -- Migración 001 — Tablas iniciales + RLS
 -- Proyecto: IAchitecter — Presupuestos de Obra
 -- Fecha: 2026-04-16
+-- Idempotente: segura de re-ejecutar
 -- ============================================================
 -- ROLLBACK (ejecutar en orden inverso para deshacer):
 --   DROP TABLE IF EXISTS audit_trail CASCADE;
@@ -37,16 +38,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS projects_updated_at ON projects;
 CREATE TRIGGER projects_updated_at
   BEFORE UPDATE ON projects
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "projects_owner_all" ON projects
-  FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "projects_owner_all" ON projects
+    FOR ALL
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ------------------------------------------------------------
 -- Tabla: execution_logs
@@ -72,12 +77,15 @@ CREATE INDEX IF NOT EXISTS idx_execution_logs_status      ON execution_logs (sta
 
 ALTER TABLE execution_logs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "execution_logs_owner_select" ON execution_logs
-  FOR SELECT
-  USING (
-    user_id = auth.uid()
-    OR project_id IN (SELECT id FROM projects WHERE user_id = auth.uid())
-  );
+DO $$ BEGIN
+  CREATE POLICY "execution_logs_owner_select" ON execution_logs
+    FOR SELECT
+    USING (
+      user_id = auth.uid()
+      OR project_id IN (SELECT id FROM projects WHERE user_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ------------------------------------------------------------
 -- Tabla: error_logs
@@ -128,9 +136,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_trail_created_at ON audit_trail (created_at
 
 ALTER TABLE audit_trail ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "audit_trail_owner_select" ON audit_trail
-  FOR SELECT
-  USING (user_id = auth.uid());
--- Sin policies de UPDATE/DELETE → denegado por defecto con RLS activo
+DO $$ BEGIN
+  CREATE POLICY "audit_trail_owner_select" ON audit_trail
+    FOR SELECT
+    USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 COMMIT;

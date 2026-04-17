@@ -1,5 +1,271 @@
 # Plan de ejecución — App conversacional arquitectura con MiniMax + guardrails
 
+---
+
+## Estado actual — 2026-04-16
+
+### ✅ Fase 1 — Fundaciones (COMPLETA)
+- [x] Estructura de repo + pyproject.toml
+- [x] FastAPI main.py + config.py (pydantic-settings)
+- [x] Supabase client + `.env.example`
+- [x] Migración SQL `001_init.sql` (4 tablas + RLS)
+- [x] Decoradores core: `@with_timeout`, `@with_validation`, `@with_logging`
+- [x] `core/errors.py`, `core/validator.py`, `core/sandbox.py`
+- [x] Endpoint `/api/health`
+- [x] `generate_budget` — primera función completa con schema
+- [x] Deploy: `deploy/systemd/`, `deploy/nginx/`, `deploy/scripts/`
+- [x] Tests: `test_guardrails.py`, `test_generate_budget.py`
+
+### ✅ Fase 2 — Integración MiniMax (COMPLETA)
+- [x] `agent/minimax_client.py` — wrapper con retry backoff, 6 tool schemas
+- [x] `agent/system_prompt.py` — prompt v1 con whitelist estricta
+- [x] `agent/tool_dispatcher.py` — whitelist + validación + ejecución
+- [x] Endpoint `/api/chat` — loop tool-use hasta 5 rondas
+- [x] `functions/extract_areas.py` — regex + factores por tipo de ambiente
+- [x] `functions/match_materials.py` — catálogo 3 tiers de calidad
+- [x] `/api/logs`, `/api/upload`
+- [x] Tests: `test_tool_dispatcher.py`, `test_extract_areas.py`, `test_match_materials.py`
+
+### ⚙️ Configuración pendiente del usuario
+- [x] Ejecutar `app/db/migrations/001_init.sql` en Supabase SQL Editor
+- [x] Copiar `.env.example` → `.env` y completar credenciales reales
+- [x] MCP de Supabase configurado en `~/.claude/settings.json`
+
+### ⚙️ Fase 3 — Funciones restantes + tests (EN CURSO)
+
+> **Para el colaborador:** Implementá las 3 funciones stub y sus tests.
+> No toques ningún archivo fuera de los listados abajo.
+> Al terminar, corré `pytest app/tests/` — tiene que pasar todo en verde.
+
+---
+
+#### Archivos a modificar (y solo estos):
+- `app/functions/generate_schedule.py`
+- `app/functions/adjust_budget.py`
+- `app/functions/export_pdf.py`
+- `app/tests/test_functions/test_generate_schedule.py` ← crear
+- `app/tests/test_functions/test_adjust_budget.py` ← crear
+- `app/tests/test_functions/test_export_pdf.py` ← crear
+
+#### Referencia obligatoria antes de empezar:
+- Leer `app/functions/generate_budget.py` — es el patrón a seguir exactamente
+- Leer `app/tests/test_functions/test_generate_budget.py` — estructura de tests
+- Leer `app/tests/conftest.py` — fixtures disponibles (`sample_budget`, `sample_areas`, etc.)
+- Leer `app/core/guardrails.py` — orden de decoradores: `@with_logging` → `@with_validation` → `@with_timeout`
+
+---
+
+#### 1. `generate_schedule` — `app/functions/generate_schedule.py`
+
+**Qué hace:** toma el output de `generate_budget` y genera un cronograma Gantt por fases.
+
+**Modelos Pydantic a definir (con `ConfigDict(strict=True)`):**
+```python
+class ScheduleInput(BaseModel):
+    project_id: str
+    budget: dict          # output de generate_budget
+    start_date: str       # formato "YYYY-MM-DD"
+    work_days_per_week: int = Field(default=5, ge=1, le=7)
+
+class Phase(BaseModel):
+    name: str             # nombre de la fase
+    categories: list[str] # categorías del presupuesto que abarca
+    start_date: str       # "YYYY-MM-DD"
+    end_date: str         # "YYYY-MM-DD"
+    weeks: int
+    cost: float
+
+class ScheduleOutput(BaseModel):
+    project_id: str
+    phases: list[Phase]
+    start_date: str
+    end_date: str
+    total_weeks: int
+```
+
+**Lógica de implementación:**
+- Fases en este orden fijo: `["cimientos", "estructura", "instalaciones", "terminaciones", "varios"]`
+- Solo incluir fases que tengan ítems en `budget["items"]` (por `item["category"]`)
+- Calcular semanas de cada fase: `weeks = max(1, round(phase_cost / total_cost * total_estimated_weeks))`
+- `total_estimated_weeks` = `ceil(total_m2 / 12)` donde `total_m2` se estima como `sum(item["quantity"] for item in items if item["unit"] == "m²")`. Si no hay m², usar `ceil(budget["total"] / 5_000_000)` como fallback
+- Fechas: calcular `start_date` y `end_date` de cada fase en cadena (la siguiente empieza el día hábil después de que termina la anterior), usando `work_days_per_week`
+- Usar `datetime` de stdlib, no deps externas
+
+**Decoradores:**
+```python
+@with_logging
+@with_validation(input_model=ScheduleInput, output_model=ScheduleOutput)
+@with_timeout(seconds=30)
+async def generate_schedule(...) -> dict[str, Any]:
+```
+
+**Tests a escribir (`test_generate_schedule.py`):**
+- `test_phases_ordered_correctly` — las fases siguen el orden definido
+- `test_end_date_after_start_date` — `end_date > start_date`
+- `test_total_weeks_equals_sum_of_phases` — `total_weeks == sum(p.weeks for p in phases)`
+- `test_phase_costs_sum_to_budget_total` — costos de fases suman al total del presupuesto
+- `test_empty_category_phase_excluded` — si no hay ítems de "instalaciones", esa fase no aparece
+- Usar fixture `sample_budget` de `conftest.py` como input de `budget`
+
+---
+
+#### 2. `adjust_budget` — `app/functions/adjust_budget.py`
+
+**Qué hace:** aplica ajustes al presupuesto (inflación, descuentos, reemplazo de ítem) y devuelve versión actualizada con delta.
+
+**Modelos Pydantic a definir:**
+```python
+class Adjustment(BaseModel):
+    type: str = Field(..., pattern="^(inflation|discount|replace)$")
+    # Para 'inflation': factor: float (ej: 1.15 = +15%)
+    # Para 'discount': percentage: float (0-100), category: str | None (None = global)
+    # Para 'replace': item_code: str, new_unit_price: float
+    factor: float | None = None
+    percentage: float | None = Field(default=None, ge=0, le=100)
+    category: str | None = None
+    item_code: str | None = None
+    new_unit_price: float | None = Field(default=None, gt=0)
+
+class AdjustInput(BaseModel):
+    project_id: str
+    budget: dict
+    adjustments: list[Adjustment] = Field(..., min_length=1)
+    reason: str = ""
+
+class AdjustOutput(BaseModel):
+    project_id: str
+    items: list[dict]
+    subtotals: dict[str, float]
+    total: float
+    currency: str
+    reference_date: str
+    version: int          # budget["version"] + 1
+    delta: float          # new_total - original_total (negativo = reducción)
+    reason: str
+```
+
+**Lógica:**
+- Aplicar ajustes **en el orden en que vienen** en la lista
+- `inflation`: multiplicar `unit_price` y `total` de **todos los ítems** por `factor`, recalcular `subtotals` y `total`
+- `discount`: si `category` es None → descuento global sobre `total`; si tiene `category` → solo ítems de esa categoría. Aplicar como `total * (1 - percentage/100)`, actualizar ítems proporcionalmente
+- `replace`: buscar ítem por `code == item_code`, actualizar su `unit_price`, recalcular su `total = quantity * new_unit_price`, recalcular `subtotals` y `total`
+- `delta = round(new_total - original_total, 2)` donde `original_total = budget["total"]` (el que entró)
+- `version = budget["version"] + 1`
+- No mutar el dict `budget` recibido — trabajar sobre una copia profunda
+
+**Decoradores:** igual que generate_schedule
+
+**Tests a escribir (`test_adjust_budget.py`):**
+- `test_inflation_increases_total` — con factor 1.15, new_total ≈ original * 1.15
+- `test_discount_decreases_total` — con 10% global, new_total ≈ original * 0.90
+- `test_discount_by_category` — descuento solo afecta ítems de esa categoría
+- `test_replace_item_price` — nuevo unit_price se refleja en total del ítem y total general
+- `test_version_incremented` — version == budget["version"] + 1
+- `test_delta_correct` — delta == new_total - original_total
+- `test_adjustments_applied_in_order` — encadenar inflation + discount, verificar resultado esperado
+- Usar fixture `sample_budget` de `conftest.py`
+
+---
+
+#### 3. `export_pdf` — `app/functions/export_pdf.py`
+
+**Qué hace:** genera PDF profesional con presupuesto y cronograma opcional, lo sube a Supabase Storage y devuelve la URL.
+
+**Dependencia:** `weasyprint` ya está en `pyproject.toml` — no agregar nada.
+
+**Modelos Pydantic a definir:**
+```python
+class ProjectInfo(BaseModel):
+    name: str
+    client: str = ""
+    architect: str = ""
+    address: str = ""
+
+class ExportInput(BaseModel):
+    project_id: str
+    budget: dict
+    schedule: dict | None = None
+    project_info: dict | None = None
+    template: str = "default"
+
+class ExportOutput(BaseModel):
+    project_id: str
+    file_url: str
+    storage_path: str    # "exports/{project_id}/{filename}.pdf"
+    pages: int
+```
+
+**Lógica:**
+1. Construir HTML como string con la función `_build_html(budget, schedule, project_info)`:
+   - Header: nombre del proyecto, cliente, arquitecto, fecha de generación (`datetime.now()`)
+   - Tabla de ítems: code | description | unit | quantity | unit_price | total
+   - Subtotales por categoría
+   - Total general
+   - Si hay `schedule`: tabla de fases con start_date, end_date, weeks, cost
+   - CSS inline mínimo (tabla con bordes, fuente sans-serif)
+
+2. Convertir HTML a PDF bytes con WeasyPrint:
+   ```python
+   from weasyprint import HTML
+   pdf_bytes = HTML(string=html_content).write_pdf()
+   ```
+
+3. Subir a Supabase Storage bucket `exports`:
+   ```python
+   from app.db.supabase_client import get_client
+   client = get_client()
+   storage_path = f"exports/{project_id}/{project_id}_v{budget['version']}.pdf"
+   client.storage.from_("exports").upload(storage_path, pdf_bytes, {"content-type": "application/pdf"})
+   file_url = client.storage.from_("exports").get_public_url(storage_path)
+   ```
+
+4. Calcular `pages` usando WeasyPrint:
+   ```python
+   from weasyprint import HTML, Document
+   doc = HTML(string=html_content).render()
+   pages = len(doc.pages)
+   ```
+   (o aproximar como `max(1, len(budget["items"]) // 30 + 1)` si hay problemas con el render)
+
+**Decoradores:** `@with_logging` → `@with_timeout(seconds=60)` (sin `@with_validation` — el input ya viene del dispatcher)
+
+**Tests a escribir (`test_export_pdf.py`):**
+- Mockear el cliente Supabase Storage para no subir archivos reales en tests
+- `test_returns_expected_keys` — resultado tiene `file_url`, `storage_path`, `pages`, `project_id`
+- `test_storage_path_format` — `storage_path` empieza con `exports/{project_id}/`
+- `test_pages_positive` — `pages >= 1`
+- `test_with_schedule_included` — pasar schedule no rompe la función
+- `test_without_schedule` — schedule=None funciona
+- Usar `unittest.mock.AsyncMock` o `pytest-mock` para mockear `client.storage`
+
+---
+
+#### Criterios de aceptación (lo que revisaremos mañana):
+- [ ] `pytest app/tests/` corre sin errores (verde completo)
+- [ ] Las 3 funciones tienen modelos Pydantic Input + Output con `ConfigDict(strict=True)`
+- [ ] Orden de decoradores correcto en las 3 funciones
+- [ ] `adjust_budget` no muta el dict `budget` recibido (copia profunda)
+- [ ] `generate_schedule` solo incluye fases con ítems reales en el presupuesto
+- [ ] `export_pdf` mockea Supabase en tests (no hace llamadas reales)
+- [ ] Ningún `print()` ni `logger.debug()` extra — solo el logging de `@with_logging`
+- [ ] No se modificó ningún archivo fuera de los 6 listados arriba
+
+---
+
+- [ ] Endpoint `/api/replay/{execution_id}` — pospuesto a Fase 3b
+- [ ] Endpoint `/api/errors` — pospuesto a Fase 3b
+- [ ] Alertas: 3 fallos en 1h → email admin — pospuesto a Fase 3b
+- [ ] Tests de integración end-to-end con mock MiniMax — pospuesto a Fase 3b
+
+### 🔲 Fase 4 — Chat web Next.js (PENDIENTE)
+- [ ] Setup Next.js 14 + Tailwind + shadcn/ui
+- [ ] Auth vía Supabase Auth
+- [ ] Componentes: `ChatWindow`, `MessageList`, `FileDropZone`, `BudgetTable`, `GanttViewer`
+- [ ] Streaming SSE desde FastAPI
+- [ ] Deploy Vercel
+
+---
+
 ## Contexto
 
 Leo quiere construir una app donde un usuario sube planos/áreas/precios por chat y un agente LLM (MiniMax 2.7, para el que ya tiene tokens) orquesta funciones Python para generar presupuestos, cronogramas y PDFs. La idea central: **el agente no razona lógica de negocio — solo rutea llamadas a funciones whitelistadas con guardrails estrictos**. Esto minimiza alucinaciones, hace todo auditable y permite iterar sin romper la app.
