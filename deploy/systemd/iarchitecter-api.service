@@ -1,0 +1,34 @@
+[Unit]
+Description=IAchitecter - FastAPI Backend
+Documentation=https://github.com/Leoscd/IAchitecter
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=deploy
+Group=deploy
+WorkingDirectory=/var/www/iarchitecter/backend
+Environment="PATH=/var/www/iarchitecter/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=/var/www/iarchitecter/backend/.env
+ExecStart=/var/www/iarchitecter/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info \
+    --access-log \
+    --no-use-colors
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Seguridad
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/iarchitecter/backend /var/log/iarchitecter
+
+[Install]
+WantedBy=multi-user.target

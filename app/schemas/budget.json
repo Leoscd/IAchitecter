@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GenerateBudgetInput",
+  "type": "object",
+  "required": ["project_id", "areas", "materials", "reference_date"],
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID del proyecto en Supabase"
+    },
+    "areas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "quantity", "unit"],
+        "properties": {
+          "type": { "type": "string" },
+          "quantity": { "type": "number", "minimum": 0.01 },
+          "unit": { "type": "string", "enum": ["m²", "ml", "m³", "un"] }
+        }
+      }
+    },
+    "materials": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["code", "name", "unit", "unit_price", "area_type", "category"],
+        "properties": {
+          "code": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "unit": { "type": "string" },
+          "unit_price": { "type": "number", "minimum": 0 },
+          "area_type": { "type": "string" },
+          "category": { "type": "string" }
+        }
+      }
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["ARS", "USD"],
+      "default": "ARS"
+    },
+    "reference_date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+      "description": "Formato YYYY-MM"
+    }
+  }
+}
