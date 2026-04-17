@@ -1,4 +1,4 @@
-"""Tests para tool_dispatcher — validación de whitelist y despacho."""
+"""Tests para tool_dispatcher - validación de whitelist y despacho."""
 import json
 
 import pytest
@@ -20,10 +20,14 @@ def _make_tool_call(name: str, args: dict, tool_id: str = "tc_001") -> dict:
 
 @pytest.mark.asyncio
 async def test_dispatch_rejects_function_not_in_whitelist():
+    """Función no en whitelist devuelve error response."""
     tool_call = _make_tool_call("delete_database", {"confirm": True})
-
-    with pytest.raises(DispatchError, match="whitelist"):
-        await dispatch(tool_call)
+    
+    result = await dispatch(tool_call)
+    
+    assert result["role"] == "tool"
+    content = json.loads(result["content"])
+    assert content.get("error") is True
 
 
 @pytest.mark.asyncio
@@ -60,11 +64,10 @@ async def test_dispatch_extract_areas_returns_tool_result():
 
 @pytest.mark.asyncio
 async def test_dispatch_not_implemented_returns_error_response():
-    """generate_schedule no está implementada — debe devolver error response, no exception."""
-    tool_call = _make_tool_call("generate_schedule", {
+    """forecast_costs no está implementada - debe devolver error response, no exception."""
+    tool_call = _make_tool_call("forecast_costs", {
         "project_id": "11111111-1111-1111-1111-111111111111",
         "budget": {},
-        "start_date": "2026-05-01",
     })
 
     result = await dispatch(tool_call)

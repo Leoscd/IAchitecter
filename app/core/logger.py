@@ -12,7 +12,9 @@ async def log_execution(
 ) -> None:
     try:
         client = get_client()
-        client.table("execution_logs").insert({
+        if client is None:
+            return  # Skip logging if no client
+        await client.table("execution_logs").insert({
             "function_name": function_name,
             "status": status,
             "duration_ms": duration_ms,
@@ -32,7 +34,9 @@ async def log_error(
 ) -> None:
     try:
         client = get_client()
-        client.table("error_logs").insert({
+        if client is None:
+            return
+        await client.table("error_logs").insert({
             "function_name": function_name,
             "error_type": error_type,
             "error_message": error_message,
@@ -52,7 +56,9 @@ async def log_audit(
 ) -> None:
     try:
         client = get_client()
-        client.table("audit_trail").insert({
+        if client is None:
+            return
+        await client.table("audit_trail").insert({
             "user_id": user_id,
             "action": action,
             "project_id": project_id,

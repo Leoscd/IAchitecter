@@ -52,9 +52,11 @@ async def dispatch(tool_call: dict) -> dict[str, Any]:
 
     # 1. Whitelist check
     if function_name not in _FUNCTION_REGISTRY:
-        raise DispatchError(
-            f"Función '{function_name}' no está en la whitelist. "
-            f"Funciones permitidas: {list(_FUNCTION_REGISTRY.keys())}"
+        return _error_response(
+            tool_call_id,
+            function_name,
+            f"Función '{function_name}' no está implementada. "
+            f"Funciones disponibles: {list(_FUNCTION_REGISTRY.keys())}"
         )
 
     fn, schema_name = _FUNCTION_REGISTRY[function_name]

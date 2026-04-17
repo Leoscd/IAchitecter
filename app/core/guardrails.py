@@ -7,6 +7,19 @@ from app.core.errors import TimeoutError, ValidationError
 from app.core.logger import log_error, log_execution
 
 
+async def _safe_log_call(async_fn, **kwargs):
+    """Hace await solo si es callable awaitable."""
+    try:
+        if asyncio.iscoroutinefunction(async_fn):
+            await async_fn(**kwargs)
+        else:
+            # Sync function - call directly
+            async_fn(**kwargs)
+    except Exception:
+        # Nunca propagar errores de logging
+        pass
+
+
 def with_logging(func: Callable) -> Callable:
     """Registra cada ejecución en execution_logs. Aplicar como decorador externo."""
     @functools.wraps(func)
@@ -20,7 +33,8 @@ def with_logging(func: Callable) -> Callable:
         except Exception as exc:
             status = "error"
             error_msg = str(exc)
-            await log_error(
+            await _safe_log_call(
+                log_error,
                 function_name=func.__name__,
                 error_type=type(exc).__name__,
                 error_message=error_msg,
@@ -28,7 +42,8 @@ def with_logging(func: Callable) -> Callable:
             raise
         finally:
             duration_ms = int((time.monotonic() - start) * 1000)
-            await log_execution(
+            await _safe_log_call(
+                log_execution,
                 function_name=func.__name__,
                 status=status,
                 duration_ms=duration_ms,
