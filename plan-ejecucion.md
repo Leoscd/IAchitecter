@@ -2,31 +2,36 @@
 
 ---
 
-## Estado actual — 2026-04-17
+## Estado actual — 2026-04-21
 
 ### ✅ Fase 1 — Fundaciones (COMPLETA)
 ### ✅ Fase 2 — Integración MiniMax (COMPLETA)
 ### ✅ Fase 3 — Funciones restantes + tests (COMPLETA)
-- [x] `generate_schedule.py` — cronograma Gantt por fases
-- [x] `adjust_budget.py` — operaciones: inflation, discount, replace
-- [x] `export_pdf.py` — genera PDF profesional con weasyprint
-- [x] Tests: 52/52 passing (100% verde)
-
-### ✅ Fase 3b — Observabilidad + endpoints pendientes (COMPLETA)
-- [x] `app/api/logs.py` — GET /logs/{project_id} + GET /errors
-- [x] `app/api/upload.py` — POST /upload a Supabase Storage
-- [x] `app/core/alerts.py` — sistema de alertas por ráfaga de errores
-- [x] `app/api/logger.py` — integrado con check_error_rate
-- [x] Tests: 55/55 passing
-
+### ✅ Fase 3b — Observabilidad (COMPLETA)
 ### ✅ Fase 4 — Chat web Next.js (COMPLETA)
-- [x] `frontend/` creado con Next.js 16
-- [x] `lib/types.ts`, `lib/api.ts`, `hooks/useChat.ts`
-- [x] Componentes: `ChatInput`, `MessageList`, `MessageBubble`, `StatusBar`, `BudgetCard`
-- [x] Página `/chat` con UI conversacional
-- [x] `npm run build` → static export en `out/` (5 páginas)
-- [x] TypeScript compila sin errores, lint pasa
-- [ ] Proxy API (`rewrites`) no funciona en static export (necesita servidor real en Fase 5)
+
+### Avances completado por Alfred (2026-04-21):
+
+**Fase 3b:**
+- `app/api/logs.py`: Implementados endpoints GET /logs/{project_id} y GET /errors
+- `app/api/upload.py`: Implementado POST /upload a Supabase Storage
+- `app/core/alerts.py`: Sistema de alertas (>= 3 errores en 60min)
+- `app/core/logger.py`: Integración con check_error_rate
+- Tests: 55/55 passing
+
+**Fase 4:**
+- `frontend/` creado con Next.js 16 + TypeScript + Tailwind
+- Componentes: ChatInput, MessageList, MessageBubble, StatusBar, BudgetCard
+- Hook useChat para estado conversacional
+- Página /chat con UI conversacional completa
+- Build estático: `npm run build` → out/ (5 páginas)
+- TypeScript compila sin errores, lint pasa
+
+**Pendiente Fase 5:**
+- Proxy API (requiere servidor Next.js real, no static export)
+- Autenticación / login
+- Historial persistente en Supabase
+- Email para alertas
 
 ---
 
