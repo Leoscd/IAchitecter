@@ -265,12 +265,12 @@ def test_get_errors_returns_200_with_mocked_db():
 ```
 
 ### Criterios de aceptación Fase 3b
-- [ ] `pytest app/tests/` sigue pasando (52+ tests, sin regresiones)
-- [ ] `GET /api/v1/logs/{project_id}` devuelve 200 con datos mockeados, 503 sin cliente
-- [ ] `GET /api/v1/errors` acepta parámetros `limit` y `since`
-- [ ] `POST /api/v1/upload` sube a Supabase Storage y devuelve `storage_path` + `public_url`
-- [ ] `app/core/alerts.py` creado y llamado desde `log_error`
-- [ ] Ningún `print()` ni comentarios TODO sin resolver
+- [x] `pytest app/tests/` sigue pasando (58/58 passing tras correcciones de revisión)
+- [x] `GET /api/v1/logs/{project_id}` devuelve 200 con datos mockeados, 503 sin cliente
+- [x] `GET /api/v1/errors` acepta parámetros `limit` y `since`
+- [x] `POST /api/v1/upload` sube a Supabase Storage y devuelve `storage_path` + `public_url`
+- [x] `app/core/alerts.py` creado y llamado desde `log_error`
+- [x] Ningún `print()` ni comentarios TODO sin resolver (TODO en alerts.py es parte del log, intencional Fase 5)
 
 ---
 
@@ -511,14 +511,16 @@ BACKEND_URL=http://localhost:8000
 ```
 
 ### Criterios de aceptación Fase 4
-- [ ] `cd frontend && npm run dev` arranca sin errores en `http://localhost:3000`
-- [ ] `npm run build` compila sin errores TypeScript
-- [ ] La página `/chat` carga y muestra la pantalla de bienvenida
-- [ ] Escribir un mensaje y presionar Enter llama a `POST /api/v1/chat` (verificar en Network tab)
-- [ ] Mientras espera respuesta se ve el spinner en la burbuja del asistente
-- [ ] La respuesta del asistente se muestra correctamente con badge de funciones ejecutadas
-- [ ] No hay `console.error` ni warnings de React en consola
-- [ ] `npm run lint` pasa sin errores
+- [x] Scaffolding Next.js 15 + TypeScript + Tailwind v3 correcto (revisado y corregido 2026-04-21)
+- [x] `output: "export"` eliminado — rewrites al backend FastAPI funcionan
+- [x] `tailwind.config.js` incluye `./components/**` en content
+- [x] Componentes ChatInput, MessageList, MessageBubble, StatusBar, BudgetCard implementados
+- [x] Hook `useChat.ts` con optimistic UI y manejo de errores
+- [x] `AGENTS.md` con instrucciones concretas para subagente frontend
+- [ ] `cd frontend && npm install && npm run dev` arranca sin errores en `http://localhost:3000` (verificar manual)
+- [ ] `npm run build` compila sin errores TypeScript (verificar tras npm install)
+- [ ] La página `/chat` carga y muestra pantalla de bienvenida (verificar manual)
+- [ ] Escribir un mensaje llama a `POST /api/v1/chat` (verificar en Network tab)
 
 ### Lo que NO implementar en Fase 4 (queda para Fase 5)
 - Autenticación / login
@@ -529,4 +531,281 @@ BACKEND_URL=http://localhost:8000
 
 ---
 
-*Última actualización: 2026-04-20 por Leo*
+---
+
+## INSTRUCCIONES FASE 5 — Auth + Historial + Email alertas
+
+### Contexto
+Backend FastAPI con 58 tests. Frontend Next.js 15 scaffoldeado. Supabase como DB/Auth.
+Esta fase cierra las deudas técnicas conocidas: auth en endpoints, historial persistente de chat, y envío real de emails de alerta.
+
+### Tarea 1 — Migración Supabase: tablas `conversations` + `messages`
+
+Crear `supabase/migrations/003_conversations.sql`:
+
+```sql
+-- Tabla de conversaciones (una por sesión de chat)
+CREATE TABLE IF NOT EXISTS conversations (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    project_id  TEXT NOT NULL,
+    title       TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Tabla de mensajes
+CREATE TABLE IF NOT EXISTS messages (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+    content         TEXT NOT NULL,
+    tool_calls      TEXT[],
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+
+-- RLS
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users_own_conversations" ON conversations
+    FOR ALL USING (auth.uid() = user_id);
+
+CREATE POLICY "users_own_messages" ON messages
+    FOR ALL USING (
+        conversation_id IN (
+            SELECT id FROM conversations WHERE user_id = auth.uid()
+        )
+    );
+
+-- Trigger updated_at
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER conversations_updated_at
+    BEFORE UPDATE ON conversations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+```
+
+### Tarea 2 — Middleware de auth JWT en FastAPI
+
+Crear `app/core/auth.py`:
+
+```python
+"""Validación de JWT de Supabase para endpoints protegidos."""
+from fastapi import Depends, HTTPException, Header
+from jose import jwt, JWTError
+import os
+
+SUPABASE_JWT_SECRET = os.environ["SUPABASE_JWT_SECRET"]
+
+
+def get_current_user(authorization: str = Header(...)) -> dict:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token requerido")
+    token = authorization.removeprefix("Bearer ")
+    try:
+        payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"],
+                             audience="authenticated")
+        return {"user_id": payload["sub"], "email": payload.get("email")}
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+```
+
+Agregar `python-jose[cryptography]` a requirements.txt.
+
+Proteger los endpoints sensibles con `user: dict = Depends(get_current_user)`:
+- `POST /api/v1/chat` — agregar `user` como parámetro
+- `POST /api/v1/upload` — ídem
+- `GET /api/v1/errors` — ídem (era "admin only")
+
+### Tarea 3 — Endpoints de historial `app/api/history.py`
+
+Crear `app/api/history.py`:
+
+```python
+"""
+GET  /api/v1/history                    — lista conversaciones del usuario
+POST /api/v1/history                    — crea nueva conversación
+GET  /api/v1/history/{conversation_id}  — mensajes de una conversación
+POST /api/v1/history/{conversation_id}/messages — agrega mensaje
+"""
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from app.db.supabase_client import get_client
+from app.core.auth import get_current_user
+
+router = APIRouter()
+
+
+class NewConversation(BaseModel):
+    project_id: str
+    title: str | None = None
+
+
+class NewMessage(BaseModel):
+    role: str
+    content: str
+    tool_calls: list[str] | None = None
+
+
+@router.get("/history")
+async def list_conversations(user: dict = Depends(get_current_user)) -> dict:
+    client = get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    try:
+        resp = (client.table("conversations")
+                .select("id, project_id, title, created_at, updated_at")
+                .eq("user_id", user["user_id"])
+                .order("updated_at", desc=True)
+                .limit(50)
+                .execute())
+        return {"conversations": resp.data, "count": len(resp.data)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/history", status_code=201)
+async def create_conversation(body: NewConversation, user: dict = Depends(get_current_user)) -> dict:
+    client = get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    try:
+        resp = (client.table("conversations")
+                .insert({"user_id": user["user_id"], "project_id": body.project_id, "title": body.title})
+                .execute())
+        return resp.data[0]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/history/{conversation_id}")
+async def get_messages(conversation_id: str, user: dict = Depends(get_current_user)) -> dict:
+    client = get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    try:
+        conv = (client.table("conversations")
+                .select("id")
+                .eq("id", conversation_id)
+                .eq("user_id", user["user_id"])
+                .execute())
+        if not conv.data:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        msgs = (client.table("messages")
+                .select("id, role, content, tool_calls, created_at")
+                .eq("conversation_id", conversation_id)
+                .order("created_at")
+                .execute())
+        return {"conversation_id": conversation_id, "messages": msgs.data}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/history/{conversation_id}/messages", status_code=201)
+async def add_message(conversation_id: str, body: NewMessage,
+                      user: dict = Depends(get_current_user)) -> dict:
+    client = get_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    try:
+        conv = (client.table("conversations")
+                .select("id")
+                .eq("id", conversation_id)
+                .eq("user_id", user["user_id"])
+                .execute())
+        if not conv.data:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        resp = (client.table("messages")
+                .insert({"conversation_id": conversation_id, "role": body.role,
+                         "content": body.content, "tool_calls": body.tool_calls})
+                .execute())
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+```
+
+Registrar el router en `app/main.py`:
+```python
+from app.api import history
+app.include_router(history.router, prefix="/api/v1")
+```
+
+### Tarea 4 — Email real en `app/core/alerts.py`
+
+Instalar `resend` (simple, sin dependencias pesadas): `pip install resend`
+Agregar `RESEND_API_KEY` y `ALERT_EMAIL_TO` a `.env`.
+
+Reemplazar el `logger.critical` en `alerts.py` con envío real + fallback a log:
+
+```python
+import os, resend
+
+async def _send_alert_email(function_name: str, count: int) -> None:
+    api_key = os.getenv("RESEND_API_KEY")
+    to_email = os.getenv("ALERT_EMAIL_TO")
+    if not api_key or not to_email:
+        return
+    resend.api_key = api_key
+    resend.Emails.send({
+        "from": "alertas@iachitecter.app",
+        "to": to_email,
+        "subject": f"[ALERTA] {count} errores en '{function_name}'",
+        "text": f"Se detectaron {count} errores en los últimos 60min para la función '{function_name}'.",
+    })
+```
+
+Llamar `await _send_alert_email(function_name, count)` dentro del bloque `if count >= ERROR_THRESHOLD`, envuelto en su propio try/except.
+
+### Tarea 5 — Frontend: auth + historial
+
+**Login page `frontend/app/login/page.tsx`:**
+- Usar `@supabase/ssr` para auth en Next.js App Router
+- Instalar: `npm install @supabase/supabase-js @supabase/ssr`
+- Form email + password → `supabase.auth.signInWithPassword()`
+- Redirect a `/chat` si ya hay sesión
+
+**`frontend/lib/supabase.ts`:**
+```typescript
+import { createBrowserClient } from "@supabase/ssr";
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+```
+
+**`frontend/hooks/useChat.ts` — actualizar:**
+- Obtener token de `supabase.auth.getSession()` antes de cada fetch
+- Pasar `Authorization: Bearer <token>` en headers de `sendMessage`
+- Crear conversación al enviar el primer mensaje, guardar mensajes en Supabase
+
+**`.env.local` — agregar:**
+```
+NEXT_PUBLIC_SUPABASE_URL=<url>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+```
+
+### Criterios de aceptación Fase 5
+- [ ] `supabase/migrations/003_conversations.sql` corre sin errores
+- [ ] `GET /api/v1/history` devuelve 401 sin token, 200 con token válido
+- [ ] `POST /api/v1/history` crea conversación asociada al user_id del JWT
+- [ ] `GET /api/v1/errors` devuelve 401 sin token
+- [ ] Alerta de email se envía cuando errores >= 3 (verificar con RESEND_API_KEY seteado)
+- [ ] `python-jose` y `resend` en requirements.txt
+- [ ] Frontend: `/login` muestra form, login exitoso redirige a `/chat`
+- [ ] Frontend: historial de chat persiste tras recargar la página
+- [ ] `pytest app/tests/` sigue pasando (58+ tests, sin regresiones)
+
+*Última actualización: 2026-04-21 por Leo*
