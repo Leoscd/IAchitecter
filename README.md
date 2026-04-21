@@ -1,15 +1,30 @@
 # IAchitecter — App de Presupuestos de Obra
 
 API conversacional para arquitectos y constructores (mercado argentino).
-Un agente LLM (MiniMax 2.7) orquesta funciones Python para generar presupuestos,
+Un agente LLM (MiniMax 2.5) orquesta funciones Python para generar presupuestos,
 cronogramas y PDFs desde descripciones en lenguaje natural.
 
 ## Stack
 
 - **Backend:** FastAPI (Python 3.11) + Pydantic v2
-- **IA:** MiniMax 2.7 (tool-use)
+- **IA:** MiniMax 2.5 (tool-use)
 - **DB:** Supabase (PostgreSQL + Storage + Auth)
-- **Deploy:** VPS HostGator — systemd + nginx
+- **Frontend:** Next.js 16 (TypeScript + Tailwind)
+- **Deploy:** VPS — systemd + nginx
+
+## Estado actual — 2026-04-21
+
+### ✅ Fases completadas (1-4)
+
+| Fase | Estado |
+|---|---|
+| Fase 1: Fundaciones | ✅ COMPLETA |
+| Fase 2: Integración MiniMax | ✅ COMPLETA |
+| Fase 3: Funciones + tests | ✅ COMPLETA |
+| Fase 3b: Observabilidad | ✅ COMPLETA |
+| Fase 4: Frontend Next.js | ✅ COMPLETA |
+
+**Tests:** 55/55 passing
 
 ## Setup local
 
@@ -46,38 +61,43 @@ pytest app/tests/
 ```
 
 Los tests unitarios **no necesitan credenciales reales** — no hacen llamadas externas.
-Solo `export_pdf` necesita mockear el cliente Supabase (ver instrucciones en `plan-ejecucion.md`).
 
-### 4. Levantar la API localmente
+### 4. Levantar la API
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Health check: `curl http://localhost:8000/api/health`
+### 5. Frontend (opcional)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend disponible en `http://localhost:3000` (redirige a `/chat`).
 
 ## Estructura del proyecto
 
 ```
 app/
-├── functions/       # 6 funciones core (extract_areas, match_materials, generate_budget,
-│                    #   generate_schedule, adjust_budget, export_pdf)
+├── functions/       # 6 funciones core
 ├── agent/           # MiniMax client + tool_dispatcher + system prompt
-├── api/             # Endpoints FastAPI (/chat, /upload, /logs, /health)
-├── core/            # Guardrails (@with_logging, @with_validation, @with_timeout)
-├── db/              # Supabase client + migraciones SQL
-└── tests/           # Tests unitarios con pytest-asyncio
+├── api/             # Endpoints FastAPI
+├── core/            # Guardrails + alerts
+├── db/              # Supabase client
+└── tests/           # Tests unitarios
+frontend/           # Next.js 16
 ```
 
-## Tarea actual — Fase 3
+## Pendiente — Fase 5
 
-Ver `plan-ejecucion.md` para instrucciones detalladas.
+- Autenticación / login
+- Proxy API (servidor Next.js real)
+- Historial persistente
+- Email para alertas
+- Dark mode
+- Deploy a producción
 
-**Resumen:** implementar las 3 funciones stub y sus tests:
-- `app/functions/generate_schedule.py`
-- `app/functions/adjust_budget.py`
-- `app/functions/export_pdf.py`
-
-Referencia de implementación: `app/functions/generate_budget.py`
-
-**Criterio de done:** `pytest app/tests/` pasa en verde completo.
+Ver `plan-ejecucion.md` para detalles.
