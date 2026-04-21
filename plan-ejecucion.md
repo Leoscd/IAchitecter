@@ -19,14 +19,14 @@
 - [x] `app/api/logger.py` — integrado con check_error_rate
 - [x] Tests: 55/55 passing
 
-### 🔲 Fase 4 — Chat web Next.js (EN PROGRESO)
+### ✅ Fase 4 — Chat web Next.js (COMPLETA)
 - [x] `frontend/` creado con Next.js 16
 - [x] `lib/types.ts`, `lib/api.ts`, `hooks/useChat.ts`
 - [x] Componentes: `ChatInput`, `MessageList`, `MessageBubble`, `StatusBar`, `BudgetCard`
 - [x] Página `/chat` con UI conversacional
-- [x] Proxy configurado en `next.config.ts`
-- [x] TypeScript compila sin errores
-- [x] Dev server corriendo en :3001
+- [x] `npm run build` → static export en `out/` (5 páginas)
+- [x] TypeScript compila sin errores, lint pasa
+- [ ] Proxy API (`rewrites`) no funciona en static export (necesita servidor real en Fase 5)
 
 ---
 
