@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from app.db.supabase_client import get_client
@@ -25,8 +26,6 @@ async def log_execution(
         # No propagar errores de logging — nunca romper la función por un log fallido
         pass
 
-
-import asyncio
 
 
 async def log_error(

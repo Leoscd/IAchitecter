@@ -2,7 +2,11 @@
 POST /api/v1/upload — subida de archivos (planos, planillas, PDFs).
 """
 from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, UploadFile
+
+from app.db.supabase_client import get_client
 
 router = APIRouter()
 
@@ -36,13 +40,12 @@ async def upload_file(file: UploadFile, project_id: str) -> dict:
         )
 
     try:
-        from app.db.supabase_client import get_client
         client = get_client()
         if client is None:
             raise HTTPException(status_code=503, detail="Storage no disponible")
 
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        safe_name = file.filename.replace(" ", "_") if file.filename else "upload"
+        safe_name = Path(file.filename).name if file.filename else "upload"
         storage_path = f"{project_id}/{timestamp}_{safe_name}"
 
         client.storage.from_("project-files").upload(
