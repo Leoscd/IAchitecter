@@ -26,6 +26,9 @@ async def log_execution(
         pass
 
 
+import asyncio
+
+
 async def log_error(
     function_name: str,
     error_type: str,
@@ -44,6 +47,10 @@ async def log_error(
         }).execute()
     except Exception:
         pass
+
+    # Alerta asíncrona si hay ráfaga de errores
+    from app.core.alerts import check_error_rate
+    asyncio.create_task(check_error_rate(function_name))
 
 
 async def log_audit(

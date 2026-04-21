@@ -12,8 +12,21 @@
 - [x] `export_pdf.py` — genera PDF profesional con weasyprint
 - [x] Tests: 52/52 passing (100% verde)
 
-### ⚙️ Fase 3b — Observabilidad + endpoints pendientes (PENDIENTE)
-### 🔲 Fase 4 — Chat web Next.js (PENDIENTE)
+### ✅ Fase 3b — Observabilidad + endpoints pendientes (COMPLETA)
+- [x] `app/api/logs.py` — GET /logs/{project_id} + GET /errors
+- [x] `app/api/upload.py` — POST /upload a Supabase Storage
+- [x] `app/core/alerts.py` — sistema de alertas por ráfaga de errores
+- [x] `app/api/logger.py` — integrado con check_error_rate
+- [x] Tests: 55/55 passing
+
+### 🔲 Fase 4 — Chat web Next.js (EN PROGRESO)
+- [x] `frontend/` creado con Next.js 16
+- [x] `lib/types.ts`, `lib/api.ts`, `hooks/useChat.ts`
+- [x] Componentes: `ChatInput`, `MessageList`, `MessageBubble`, `StatusBar`, `BudgetCard`
+- [x] Página `/chat` con UI conversacional
+- [x] Proxy configurado en `next.config.ts`
+- [x] TypeScript compila sin errores
+- [x] Dev server corriendo en :3001
 
 ---
 
