@@ -9,7 +9,7 @@
 ### ✅ Fase 3 — Funciones restantes + tests (COMPLETA)
 ### ✅ Fase 3b — Observabilidad (COMPLETA)
 ### ✅ Fase 4 — Chat web Next.js (COMPLETA — scaffolding corregido y revisado)
-### 🔄 Fase 5 — Auth + Historial + Email (BACKEND COMPLETO — frontend pendiente colaborador)
+### ✅ Fase 5 — Auth + Historial + Email (COMPLETA)
 
 ### Avances completado por Alfred (2026-04-21):
 
@@ -604,13 +604,13 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
 - [x] `python-jose` y `resend` en pyproject.toml y requirements.txt
 - [ ] Variables de entorno seteadas en `.env`: `SUPABASE_JWT_SECRET`, `RESEND_API_KEY`, `ALERT_EMAIL_TO`
 - [ ] Migración `003_conversations.sql` aplicada en Supabase dashboard
-- [ ] Frontend: `npm install @supabase/supabase-js @supabase/ssr` ejecutado
-- [ ] Frontend: `frontend/lib/supabase.ts` creado
-- [ ] Frontend: `frontend/app/login/page.tsx` implementado (form + signInWithPassword)
-- [ ] Frontend: `frontend/hooks/useChat.ts` actualizado con JWT + persistencia historial
-- [ ] Frontend: `frontend/app/chat/page.tsx` redirige a `/login` si no hay sesión
-- [ ] `cd frontend && npm run dev` arranca sin errores
-- [ ] `pytest app/tests/` sigue pasando (66+ tests, sin regresiones)
+- [x] Frontend: `npm install @supabase/supabase-js @supabase/ssr` ejecutado
+- [x] Frontend: `frontend/lib/supabase.ts` creado
+- [x] Frontend: `frontend/app/login/page.tsx` implementado (form + signInWithPassword)
+- [x] Frontend: `frontend/hooks/useChat.ts` actualizado con JWT + persistencia historial
+- [x] Frontend: `frontend/app/chat/page.tsx` redirige a `/login` si no hay sesión
+- [x] `cd frontend && npm run build` compila sin errores (7 páginas)
+- [x] `pytest app/tests/` sigue pasando (66/66 tests, sin regresiones)
 
 > **Nota:** Los endpoints `/api/v1/errors`, `/api/v1/upload` y `/api/v1/chat` aún no están
 > protegidos con `Depends(get_current_user)`. Agregar en una iteración posterior para no
